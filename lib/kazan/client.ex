@@ -18,6 +18,8 @@ defmodule Kazan.Client do
   * `server` - A `Kazan.Server` struct that defines which server we should send
     this request to. This will override any server provided in the Application
     config.
+  * `stream_to` - A `pid` to which responses are sent.  This will create a Async
+     request with HTTPoison.
   """
   @spec run(Request.t, Keyword.t) :: run_result
   def run(request, options \\ []) do
@@ -34,20 +36,43 @@ defmodule Kazan.Client do
       _ -> []
     end
 
+    stream_to = Keyword.get(options, :stream_to)
+
+    request_options =
+      [ params: request.query_params,
+        ssl: ssl_options(server)]
+
+    request_options =
+      case stream_to do
+        nil ->
+          request_options
+        pid ->
+          request_options ++
+          [ stream_to: pid,
+            recv_timeout: 60 * 60 * 1000 ]
+      end
+
     res = HTTPoison.request(
       method(request.method),
       server.url <> request.path,
       request.body || "",
       headers,
-      params: request.query_params,
-      ssl: ssl_options(server)
+      request_options
     )
 
-    with {:ok, result} <- res,
-         {:ok, body} <- check_status(result),
-         {:ok, data} <- Poison.decode(body),
-         {:ok, model} <- Kazan.Models.decode(data, request.response_schema),
-         do: {:ok, model}
+    case stream_to do
+      nil ->
+        with {:ok, result} <- res,
+             {:ok, body} <- check_status(result),
+             {:ok, data} <- Poison.decode(body),
+             {:ok, model} <- Kazan.Models.decode(data, request.response_schema),
+             do: {:ok, model}
+      _pid ->
+        case res do
+          {:ok, %HTTPoison.AsyncResponse{id: id}} -> {:ok, id}
+          other -> other
+        end
+    end
   end
 
   @doc """

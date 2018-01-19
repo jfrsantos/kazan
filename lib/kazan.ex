@@ -8,6 +8,7 @@ defmodule Kazan do
   - `Kazan.Apis` contains modules that contain functions for building requests
     to send to the kube API.
   - `Kazan.Client` is responsible for actually sending those requests.
+  - `Kazan.Watcher` is responsible for watching for changes to kube resources.
 
   See the [README](readme.html) for example usage.
   """
