@@ -20,6 +20,7 @@ defmodule Kazan.Client do
     config.
   * `stream_to` - A `pid` to which responses are sent.  This will create a Async
      request with HTTPoison.
+  * `recv_timeout` - Passed to HTTPoison `request_options`
   """
   @spec run(Request.t, Keyword.t) :: run_result
   def run(request, options \\ []) do
@@ -49,7 +50,7 @@ defmodule Kazan.Client do
         pid ->
           request_options ++
           [ stream_to: pid,
-            recv_timeout: 60 * 60 * 1000 ]
+            recv_timeout: Keyword.get(options, :recv_timeout, 15000) ]
       end
 
     res = HTTPoison.request(

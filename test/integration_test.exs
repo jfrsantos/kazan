@@ -1,8 +1,10 @@
 defmodule KazanIntegrationTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false, capture_log: false
 
   alias Kazan.Models.Core.V1
+  alias Kazan.Models.Core.V1.{Pod, PodStatus, PodSpec}
   alias Kazan.Models.Apimachinery.Meta.V1.{
+    WatchEvent,
     ObjectMeta,
     DeleteOptions,
   }
@@ -14,8 +16,21 @@ defmodule KazanIntegrationTest do
     unless kubeconfig do
       raise "KUBECONFIG environment variable must be set to run integration tests"
     end
-    {:ok, %{server: Kazan.Server.from_kubeconfig(kubeconfig)}}
+    server = Kazan.Server.from_kubeconfig(kubeconfig)
+    on_exit(nil, fn ->
+      pod_names = ["kazan-test", "watch-test-pod"]
+      Enum.each(pod_names, fn pod_name ->
+        try do
+          delete_pod(pod_name, server: server)
+        rescue
+          Kazan.RemoteError -> IO.puts "Cannot delete"
+        end
+      end)
+    end)
+    {:ok, %{server: server}}
   end
+
+  # TODO: Clean up pods
 
   @namespace "default"
 
@@ -41,23 +56,7 @@ defmodule KazanIntegrationTest do
   end
 
   test "can create, patch and delete a pod", %{server: server} do
-    created_pod =
-      Kazan.Apis.CoreV1.create_namespaced_pod!(
-        %V1.Pod{
-          metadata: %ObjectMeta{name: "kazan-test"},
-          spec: %V1.PodSpec{
-            containers: [
-              %V1.Container{
-                args: [],
-                image: "obmarg/health-proxy",
-                name: "main-process",
-              }
-            ]
-          }
-        },
-        @namespace
-      )
-      |> Kazan.Client.run!(server: server)
+    created_pod = create_pod("kazan-test", server: server)
 
     read_pod =
       Kazan.Apis.CoreV1.read_namespaced_pod!(@namespace, "kazan-test")
@@ -65,18 +64,9 @@ defmodule KazanIntegrationTest do
 
     assert read_pod.spec == %{created_pod.spec | node_name: read_pod.spec.node_name}
 
-    patched_pod = Kazan.Apis.CoreV1.patch_namespaced_pod!(
-      %V1.Pod{
-        metadata: %ObjectMeta{name: "kazan-test"},
-        spec: %V1.PodSpec{
-          active_deadline_seconds: 5
-        }
-      },
-      @namespace,
-      "kazan-test"
-    ) |> Kazan.Client.run!(server: server)
+    patched_pod = patch_pod("kazan-test", server: server)
 
-    assert patched_pod.spec == %{read_pod.spec | active_deadline_seconds: 5}
+    assert patched_pod.spec == %{read_pod.spec | active_deadline_seconds: 1}
 
     read_pod =
       Kazan.Apis.CoreV1.read_namespaced_pod!(@namespace, "kazan-test")
@@ -84,10 +74,7 @@ defmodule KazanIntegrationTest do
 
     assert read_pod == patched_pod
 
-    Kazan.Apis.CoreV1.delete_namespaced_pod!(
-      %DeleteOptions{}, @namespace, "kazan-test"
-    )
-    |> Kazan.Client.run!(server: server)
+    delete_pod("kazan-test", server: server)
   end
 
   test "RBAC Authorization V1 Beta 1 API", %{server: server} do
@@ -97,5 +84,73 @@ defmodule KazanIntegrationTest do
 
     assert cluster_roles.kind == "ClusterRoleList"
     assert cluster_roles.items == []
+  end
+
+  test "Can listen for namespace changes", %{server: server} do
+
+    pod_name = "watch-test-pod"
+    Kazan.Apis.CoreV1.list_namespaced_pod!(@namespace, watch: "true", timeout_seconds: 1)
+    |> Kazan.Watcher.start_link(resource_version: "0", server: server, recv_timeout: 10500)
+
+    create_pod(pod_name, server: server)
+
+    :timer.sleep(3000)
+    assert_receive(%WatchEvent{object: %Pod{ metadata: %ObjectMeta{name: ^pod_name}} , type: "ADDED"})
+    assert_receive(%WatchEvent{object: %Pod{ metadata: %ObjectMeta{name: ^pod_name},
+      status: %PodStatus{phase: "Pending", container_statuses: nil}} , type: "MODIFIED"})
+    assert_receive(%WatchEvent{object: %Pod{ metadata: %ObjectMeta{name: ^pod_name},
+      status: %PodStatus{phase: "Pending", container_statuses: [_|_]}} , type: "MODIFIED"})
+
+    patch_pod(pod_name, server: server)
+
+
+    :timer.sleep(3000)
+    assert_receive(%WatchEvent{object: %Pod{metadata: %ObjectMeta{name: ^pod_name},
+                                            spec: %PodSpec{active_deadline_seconds: 1}},
+                                type: "MODIFIED"})
+
+    delete_pod(pod_name, server: server)
+
+    assert_receive(%WatchEvent{object: %Pod{metadata: %ObjectMeta{name: ^pod_name}}, type: "DELETED"}, 3000)
+
+  end
+
+  defp create_pod(pod_name, opts) do
+    Kazan.Apis.CoreV1.create_namespaced_pod!(
+      %V1.Pod{
+        metadata: %ObjectMeta{name: pod_name},
+        spec: %V1.PodSpec{
+          containers: [
+            %V1.Container{
+              args: [],
+              image: "obmarg/health-proxy",
+              name: "main-process",
+            }
+          ]
+        }
+      },
+      @namespace
+    )
+    |> Kazan.Client.run!(opts)
+  end
+
+  defp patch_pod(pod_name, opts) do
+    Kazan.Apis.CoreV1.patch_namespaced_pod!(
+      %V1.Pod{
+        metadata: %ObjectMeta{name: pod_name},
+        spec: %V1.PodSpec{
+          active_deadline_seconds: 1
+        }
+      },
+      @namespace,
+      pod_name
+    ) |> Kazan.Client.run!(opts)
+  end
+
+  defp delete_pod(pod_name, opts) do
+    Kazan.Apis.CoreV1.delete_namespaced_pod!(
+      %DeleteOptions{}, @namespace, pod_name
+    )
+    |> Kazan.Client.run!(opts)
   end
 end

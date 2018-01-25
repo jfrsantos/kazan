@@ -63,7 +63,7 @@ defmodule Kazan.Watcher do
     # Chunked HTTP responses are not always a complete line, so we must buffer them
     # until we have a complete line before parsing.
 
-    defstruct id: nil, request: nil, send_to: nil, server: nil, buffer: LineBuffer.new(), rv: nil
+    defstruct id: nil, request: nil, send_to: nil, name: nil, buffer: nil, rv: nil, client_opts: []
   end
 
   @doc """
@@ -73,24 +73,25 @@ defmodule Kazan.Watcher do
 
   ### Options
 
-  * `server` - A `Kazan.Server` struct that defines which server we should send
-    this request to. This will override any server provided in the Application
-    config.
   * `send_to` - A `pid` to which events are sent.  Defaults to `self()`.
   * `resource_version` - The version from which to start watching.
+  * `name` - An optional name for the watcher.  Displayed in logs.
+  * Other options are passed directly to `Kazan.Client.run/2`
   """
   def start_link(%Kazan.Request{} = request, opts) do
-    send_to = Keyword.get(opts, :send_to, self())
-    rv = Keyword.fetch!(opts, :resource_version)
-    server = Keyword.get(opts, :server)
-    GenServer.start_link(__MODULE__, [request, rv, send_to, server])
+    {send_to, opts} = Keyword.pop(opts, :send_to, self())
+    GenServer.start_link(__MODULE__, [request, send_to, opts])
   end
 
   @impl GenServer
-  def init([request, rv, send_to, server]) do
-    Logger.info "Watcher init pid: #{inspect self()} rv: #{rv} request: #{inspect request}"
-    {:ok, id} = Kazan.Client.run(request, stream_to: self(), server: server)
-    {:ok, %State{id: id, request: request, rv: rv, send_to: send_to, server: server}}
+  def init([request, send_to, opts]) do
+    {rv, opts} = Keyword.pop(opts, :resource_version)
+    {name, opts} = Keyword.pop(opts, :name, inspect(self()))
+    Logger.info "Watcher init: #{name} rv: #{rv} request: #{inspect request}"
+    state =
+      %State{request: request, rv: rv, send_to: send_to, name: name, client_opts: opts}
+      |> start_request()
+    {:ok, state}
   end
 
   @impl GenServer
@@ -105,7 +106,7 @@ defmodule Kazan.Watcher do
 
   @impl GenServer
   def handle_info(%HTTPoison.AsyncChunk{chunk: chunk, id: request_id},
-                  %State{id: id, buffer: buffer, rv: rv, send_to: send_to} = state) do
+                  %State{id: id, buffer: buffer} = state) do
     if request_id != id do
       Logger.warn "Received chunk for wrong request_id: #{inspect request_id} expect: #{inspect id}"
       {:noreply, state}
@@ -116,66 +117,57 @@ defmodule Kazan.Watcher do
         |> LineBuffer.add_chunk(chunk)
         |> LineBuffer.get_lines()
 
-        new_rv = process_lines(lines, rv, send_to)
+        new_rv = process_lines(state, lines)
 
       {:noreply, %State{state | buffer: buffer, rv: new_rv}}
     end
   end
 
   @impl GenServer
-  def handle_info(%HTTPoison.Error{reason: {:closed, :timeout}}, state) do
-    Logger.info "Received Timeout with id: #{inspect self()}"
-    {:noreply, restart_connection(state)}
+  def handle_info(%HTTPoison.Error{reason: {:closed, :timeout}}, %State{name: name, rv: rv} = state) do
+    Logger.warn "Received Timeout: #{name} rv: #{rv}"
+    {:noreply, start_request(state)}
   end
 
   @impl GenServer
   def handle_info(%HTTPoison.AsyncEnd{id: request_id},
-                  %State{id: id} = state) do
-    Logger.info "Received AsyncEnd for id: #{inspect request_id}"
-    if request_id != id do
-      Logger.warn "Received AsyncEnd message for wrong request_id: #{inspect request_id} expect: #{inspect id}"
-      {:noreply, state}
-    else
-      {:noreply, restart_connection(state)}
-    end
+                  %State{id: request_id, name: name, rv: rv} = state) do
+    Logger.info "Received AsyncEnd: #{name} rv: #{rv}"
+    {:noreply, start_request(state)}
   end
-
 
   # INTERNAL
 
-  defp restart_connection(%State{request: request, rv: rv, server: server} = state) do
+  defp start_request(%State{request: request, name: name, rv: rv, client_opts: client_opts} = state) do
     query_params = Map.put(request.query_params, "resourceVersion", rv)
     request = %Kazan.Request{request | query_params: query_params}
-    {:ok, id} = Kazan.Client.run(request, stream_to: self(), server: server)
-    Logger.info "Restarted #{inspect self()}"
+    {:ok, id} = Kazan.Client.run(request, [{:stream_to, self()} | client_opts])
+    Logger.info "Started request: #{name} rv: #{rv}"
     %State{state | id: id, buffer: LineBuffer.new()}
   end
 
-  defp process_lines(lines, rv, send_to) do
+  defp process_lines(%State{name: name, send_to: send_to, rv: rv}, lines) do
+    Logger.info "Process lines: #{name}"
     Enum.reduce(lines, rv, fn(line, current_rv) ->
       {:ok, %{"type" => type, "object" => raw_object}} = Poison.decode(line)
       {:ok, model} = Kazan.Models.decode(raw_object)
-      ve = %WatchEvent{type: type, object: model}
-
-      send(send_to, ve)
-
-      new_rv(type, raw_object, current_rv)
+      case {type, extract_rv(raw_object)} do
+        # Workaround https://github.com/kubernetes/kubernetes/issues/58545
+        # Code for 1.8 branch https://github.com/kubernetes/kubernetes/pull/58571
+        {"DELETED", new_rv} ->
+          Logger.info "Received message: #{name} type: #{type} rv: #{new_rv} - ignoring as DELETE"
+          send(send_to, %WatchEvent{type: type, object: model})
+          current_rv
+        {_, ^current_rv} ->
+          Logger.info "Duplicate message: #{name} type: #{type} rv: #{current_rv}"
+          current_rv
+        {_, new_rv} ->
+          Logger.info "Received message: #{name} type: #{type} rv: #{new_rv}"
+          send(send_to, %WatchEvent{type: type, object: model})
+          new_rv
+      end
     end)
   end
 
-  defp new_rv("DELETED", _object, current_rv), do: current_rv
-  defp new_rv(type, object, current_rv) do
-    case object do
-      %{"metadata" => %{"resourceVersion" => new_rv}} ->
-        if String.to_integer(new_rv) > String.to_integer(current_rv) do
-          new_rv
-        else
-          Logger.warn "#{inspect self()} Old rv found: #{new_rv} type: #{type} current: #{current_rv} kind: #{object["kind"]} ns: #{object["metadata"]["namespace"]} name: #{object["metadata"]["name"]}"
-          current_rv
-        end
-      _ ->
-        Logger.warn "No rv found in object"
-        current_rv
-    end
-  end
+  defp extract_rv(%{"metadata" => %{"resourceVersion" => rv}}), do: rv
 end
