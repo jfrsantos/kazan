@@ -18,17 +18,19 @@ defmodule Kazan.Watcher do
   ```
   Kazan.Watcher.start_link(request, resource_version: rv, send_to: self())
   ```
-  3. In your client code you receive messages for each `%Versioned.Event{}`.
+  3. In your client code you receive messages for each `%WatchEvent{}`.
     You can pattern match on the object type if you have multiple watchers configured.
     For example, if the client is a `GenServer`
   ```
+    alias Kazan.Models.Apimachinery.Meta.V1.WatchEvent
+
     # type is "ADDED", "DELETED" or "MODIFIED"
-    def handle_info(%Kazan.Models.Versioned.Event{object: object, type: type}, state) do
+    def handle_info(%WatchEvent{object: object, type: type}, state) do
       case object do
-        %Kazan.Models.V1.Namespace{} = namespace ->
+        %Kazan.Models.Core.V1.Namespace{} = namespace ->
           process_namespace_event(type, namespace)
 
-        %Kazan.Models.V1.Job{} = job ->
+        %Kazan.Models.Core.V1.Job{} = job ->
           process_job_event(type, job)
       end
       {:noreply, state}
@@ -38,42 +40,57 @@ defmodule Kazan.Watcher do
 
   use GenServer
   alias Kazan.LineBuffer
+  alias Kazan.Models.Apimachinery.Meta.V1.WatchEvent
   require Logger
 
   defmodule State do
-    @moduledoc """
-    Stores the internal state of the watcher.
+    @moduledoc false
 
-    Includes:
+    # Stores the internal state of the watcher.
+    #
+    # Includes:
+    #
+    # resource_version:
+    #
+    # The K8S *resource_version* (RV) is used to version each change in the cluster.
+    # When we listen for events we need to specify the RV to start listening from.
+    # For each event received we also receive a new RV, which we store in state.
+    # When the watch eventually times-out (it is an HTTP request with a chunked response),
+    # we can then create a new request passing the latest RV that was received.
+    #
+    # buffer:
+    #
+    # Chunked HTTP responses are not always a complete line, so we must buffer them
+    # until we have a complete line before parsing.
 
-    resource_version:
-
-    The K8S *resource_version* (RV) is used to version each change in the cluster.
-    When we listen for events we need to specify the RV to start listening from.
-    For each event received we also receive a new RV, which we store in state.
-    When the watch eventually times-out (it is an HTTP request with a chunked response),
-    we can then create a new request passing the latest RV that was received.
-
-    buffer:
-
-    Chunked HTTP responses are not always a complete line, so we must buffer them
-    until we have a complete line before parsing.
-    """
-    defstruct id: nil, request: nil, send_to: nil, buffer: LineBuffer.new(), rv: nil
+    defstruct id: nil, request: nil, send_to: nil, server: nil, buffer: LineBuffer.new(), rv: nil
   end
 
-  @doc "Starts an async request send_to is the process to send messages to; resource_version can also be passed"
+  @doc """
+  Starts a watch request to the kube server
+
+  The server should be set in the kazan config or provided in the options.
+
+  ### Options
+
+  * `server` - A `Kazan.Server` struct that defines which server we should send
+    this request to. This will override any server provided in the Application
+    config.
+  * `send_to` - A `pid` to which events are sent.  Defaults to `self()`.
+  * `resource_version` - The version from which to start watching.
+  """
   def start_link(%Kazan.Request{} = request, opts) do
-    send_to = Keyword.fetch!(opts, :send_to)
+    send_to = Keyword.get(opts, :send_to, self())
     rv = Keyword.fetch!(opts, :resource_version)
-    GenServer.start_link(__MODULE__, [request, rv, send_to])
+    server = Keyword.get(opts, :server)
+    GenServer.start_link(__MODULE__, [request, rv, send_to, server])
   end
 
   @impl GenServer
-  def init([request, rv, send_to]) do
+  def init([request, rv, send_to, server]) do
     Logger.info "Watcher init pid: #{inspect self()} rv: #{rv} request: #{inspect request}"
-    {:ok, id} = Kazan.Client.run(request, stream_to: self())
-    {:ok, %State{id: id, request: request, rv: rv, send_to: send_to}}
+    {:ok, id} = Kazan.Client.run(request, stream_to: self(), server: server)
+    {:ok, %State{id: id, request: request, rv: rv, send_to: send_to, server: server}}
   end
 
   @impl GenServer
@@ -126,10 +143,10 @@ defmodule Kazan.Watcher do
 
   # INTERNAL
 
-  defp restart_connection(%State{request: request, rv: rv} = state) do
+  defp restart_connection(%State{request: request, rv: rv, server: server} = state) do
     query_params = Map.put(request.query_params, "resourceVersion", rv)
     request = %Kazan.Request{request | query_params: query_params}
-    {:ok, id} = Kazan.Client.run(request, stream_to: self())
+    {:ok, id} = Kazan.Client.run(request, stream_to: self(), server: server)
     Logger.info "Restarted #{inspect self()}"
     %State{state | id: id, buffer: LineBuffer.new()}
   end
@@ -138,7 +155,7 @@ defmodule Kazan.Watcher do
     Enum.reduce(lines, rv, fn(line, current_rv) ->
       {:ok, %{"type" => type, "object" => raw_object}} = Poison.decode(line)
       {:ok, model} = Kazan.Models.decode(raw_object)
-      ve = %Kazan.Models.ApiMachinery.Apis.Meta.V1.WatchEvent{type: type, object: model}
+      ve = %WatchEvent{type: type, object: model}
 
       send(send_to, ve)
 
