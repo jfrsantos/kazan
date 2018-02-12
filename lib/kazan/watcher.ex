@@ -154,10 +154,10 @@ defmodule Kazan.Watcher do
       case {type, extract_rv(raw_object)} do
         # Workaround https://github.com/kubernetes/kubernetes/issues/58545
         # Code for 1.8 branch https://github.com/kubernetes/kubernetes/pull/58571
-        {"DELETED", new_rv} ->
-          Logger.info "Received message: #{name} type: #{type} rv: #{new_rv} - ignoring as DELETE"
-          send(send_to, %WatchEvent{type: type, object: model})
-          current_rv
+        # {"DELETED", new_rv} ->
+        #   Logger.info "Received message: #{name} type: #{type} rv: #{new_rv} - ignoring as DELETE"
+        #   send(send_to, %WatchEvent{type: type, object: model})
+        #   current_rv
         {_, ^current_rv} ->
           Logger.info "Duplicate message: #{name} type: #{type} rv: #{current_rv}"
           current_rv

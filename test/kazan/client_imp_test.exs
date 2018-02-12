@@ -1,17 +1,19 @@
-defmodule Kazan.ClientTest do
+defmodule Kazan.Client.ImpTest do
   use ExUnit.Case
+
+  alias Kazan.Apis.Core.V1, as: CoreV1
 
   setup do
     bypass = Bypass.open
-    request = Kazan.Apis.CoreV1.list_namespace!()
+    request = CoreV1.list_namespace!()
     server = %Kazan.Server{url: "http://localhost:#{bypass.port}"}
     {:ok, %{bypass: bypass, request: request, server: server}}
   end
 
-  describe "Client.run" do
-    import Kazan.Client, only: [run: 2]
+  describe "Client.Imp.run" do
+    import Kazan.Client.Imp, only: [run: 2]
 
-    test "returns decoded data if everything is good", context do
+    test "returns decoded data if application/json returned", context do
       %{request: request, bypass: bypass, server: server} = context
 
       Bypass.expect bypass, fn conn ->
@@ -20,12 +22,28 @@ defmodule Kazan.ClientTest do
 
         conn
         |> Plug.Conn.resp(200, namespace_response())
-        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.put_resp_header("Content-Type", "application/json")
       end
 
       {:ok, data} = run(request, server: server)
       assert data
       assert length(data.items) == 1
+    end
+
+    test "returns raw data if non application/json is returned", context do
+      %{request: request, bypass: bypass, server: server} = context
+
+      Bypass.expect bypass, fn conn ->
+        assert conn.method == "GET"
+        assert conn.request_path == "/api/v1/namespaces"
+
+        conn
+        |> Plug.Conn.resp(200, "some text")
+        |> Plug.Conn.put_resp_header("Content-Type", "text/plain")
+      end
+
+      {:ok, data} = run(request, server: server)
+      assert "some text" == data
     end
 
     test "passes on query parameters if supplied", context do
@@ -38,7 +56,7 @@ defmodule Kazan.ClientTest do
 
         conn
         |> Plug.Conn.resp(200, namespace_response())
-        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.put_resp_header("Content-Type", "application/json")
       end
 
       {:ok, _} = run(request, server: server)
@@ -50,7 +68,7 @@ defmodule Kazan.ClientTest do
       Bypass.expect bypass, fn conn ->
         conn
         |> Plug.Conn.resp(500, namespace_response())
-        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.put_resp_header("Content-Type", "application/json")
       end
 
       {:error, {:http_error, 500, _}} = run(request, server: server)
@@ -65,8 +83,8 @@ defmodule Kazan.ClientTest do
     end
   end
 
-  describe "Client.run!" do
-    import Kazan.Client, only: [run!: 2]
+  describe "Client.Imp.run!" do
+    import Kazan.Client.Imp, only: [run!: 2]
 
     test "returns decoded data if everything is good", context do
       %{request: request, bypass: bypass, server: server} = context
@@ -77,7 +95,7 @@ defmodule Kazan.ClientTest do
 
         conn
         |> Plug.Conn.resp(200, namespace_response())
-        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.put_resp_header("Content-Type", "application/json")
       end
 
       data = run!(request, server: server)
