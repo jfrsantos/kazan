@@ -231,6 +231,13 @@ defmodule Kazan.Watcher do
       {:ok, model} = Kazan.Models.decode(raw_object)
 
       case {type, extract_rv(raw_object)} do
+        {_, {:gone, message}} ->
+          Logger.warn(
+            "Received 410: #{name} message: #{message}. Setting rv to 0"
+          )
+
+          "0"
+
         {_, ^current_rv} ->
           Logger.warn(
             "Duplicate message: #{name} type: #{type} rv: #{current_rv}"
@@ -245,6 +252,15 @@ defmodule Kazan.Watcher do
       end
     end)
   end
+
+  defp extract_rv(%{
+         "code" => 410,
+         "kind" => "Status",
+         "reason" => "Gone",
+         "status" => "Failure",
+         "message" => message
+       }),
+       do: {:gone, message}
 
   defp extract_rv(%{"metadata" => %{"resourceVersion" => rv}}), do: rv
   defp extract_rv(%{metadata: %{resource_version: rv}}), do: rv
