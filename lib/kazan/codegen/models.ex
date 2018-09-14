@@ -214,6 +214,9 @@ defmodule Kazan.Codegen.Models do
 
       "io.k8s.apiextensions-apiserver.pkg.apis." <> rest ->
         [Kazan.Models.ApiextensionsApiserver] ++ to_components.(rest)
+
+      "io.k8s.metrics.pkg.apis." <> rest ->
+        [Kazan.Models.Metrics] ++ to_components.(rest)
     end
   end
 
