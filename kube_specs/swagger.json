@@ -82142,7 +82142,7 @@
       }
      },
      "window": {
-      "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.Duration"
+      "type": "string"
      }
     },
     "x-kubernetes-group-version-kind": [
@@ -82218,7 +82218,7 @@
       "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.Time"
      },
      "window": {
-      "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.Duration"
+      "type": "string"
      }
     },
     "x-kubernetes-group-version-kind": [
