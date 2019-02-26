@@ -56,6 +56,10 @@ defmodule Kazan.Watcher do
   alias Kazan.LineBuffer
   require Logger
 
+  # Initial backoff for retrying connection to watch
+  @initial_retry_ms 1000
+  @max_retry_ms 60_000
+
   defmodule State do
     @moduledoc false
 
@@ -83,7 +87,8 @@ defmodule Kazan.Watcher do
               buffer: nil,
               rv: nil,
               client_opts: [],
-              log_level: false
+              log_level: false,
+              retries: 0
   end
 
   defmodule Event do
@@ -239,11 +244,20 @@ defmodule Kazan.Watcher do
     {:stop, :normal, state}
   end
 
+  def handle_info(:retry_start_request, %State{} = state) do
+    {:noreply, start_request(state)}
+  end
+
   # INTERNAL
 
   defp start_request(
-         %State{request: request, name: name, rv: rv, client_opts: client_opts} =
-           state
+         %State{
+           request: request,
+           name: name,
+           rv: rv,
+           client_opts: client_opts,
+           retries: retries
+         } = state
        ) do
     query_params =
       request.query_params
@@ -251,9 +265,33 @@ defmodule Kazan.Watcher do
       |> Map.put("resourceVersion", rv)
 
     request = %Kazan.Request{request | query_params: query_params}
-    {:ok, id} = Kazan.run(request, [{:stream_to, self()} | client_opts])
-    log(state, "Started request: #{name} rv: #{rv}")
-    %State{state | id: id, buffer: LineBuffer.new()}
+
+    case Kazan.run(request, [{:stream_to, self()} | client_opts]) do
+      {:ok, id} ->
+        log(state, "Started request: #{name} rv: #{rv}")
+        %State{state | id: id, buffer: LineBuffer.new(), retries: 0}
+
+      {:error, %HTTPoison.Error{reason: :connect_timeout}} ->
+        retry_ms = retry_ms(retries)
+
+        Logger.warn(
+          "Error starting watch for: #{name} rv: #{rv} reason: :connect_timeout
+          } retries: #{retries}.  Will retry after #{retry_ms}ms"
+        )
+
+        Process.send_after(self(), :retry_start_request, retry_ms)
+        %State{state | id: nil, retries: retries + 1}
+    end
+  end
+
+  # Calculate a retry time using exponential backoff with a random element
+  defp retry_ms(retries) do
+    round(
+      min(
+        @initial_retry_ms * :math.pow(2, retries + 1),
+        @max_retry_ms
+      ) * (Enum.random(1000..1200) / 1000)
+    )
   end
 
   defp process_lines(%State{name: name, rv: rv} = state, lines) do
