@@ -271,12 +271,14 @@ defmodule Kazan.Watcher do
         log(state, "Started request: #{name} rv: #{rv}")
         %State{state | id: id, buffer: LineBuffer.new(), retries: 0}
 
-      {:error, %HTTPoison.Error{reason: :connect_timeout}} ->
+      {:error, %HTTPoison.Error{reason: reason}}
+      when reason in [:connect_timeout, :closed, :econnrefused] ->
         retry_ms = retry_ms(retries)
 
         Logger.warn(
-          "Error starting watch for: #{name} rv: #{rv} reason: :connect_timeout
-          } retries: #{retries}.  Will retry after #{retry_ms}ms"
+          "Error starting watch for: #{name} rv: #{rv} reason: #{reason} retries: #{
+            retries
+          }.  Will retry after #{retry_ms}ms"
         )
 
         Process.send_after(self(), :retry_start_request, retry_ms)
