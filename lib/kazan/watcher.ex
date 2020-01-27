@@ -82,6 +82,7 @@ defmodule Kazan.Watcher do
               name: nil,
               buffer: nil,
               rv: nil,
+              max_connect_retries: nil,
               client_opts: [],
               log_level: false
   end
@@ -101,6 +102,9 @@ defmodule Kazan.Watcher do
   * `resource_version` - The version from which to start watching.
   * `name` - An optional name for the watcher.  Displayed in logs.
   * `log` - the level to log. When false, disables watcher logging.
+  * 'max_connect_retries' - if a K8S connection error occurs, by default the watcher will raise an exception.
+    Setting this to a value > 0 will retry the specified number of times with an exponetial backoff starting at 1 second,
+    and a maximum of 2 minutes, before raising. A value of `:infinity` will retry forever.
   * Other options are passed directly to `Kazan.Client.run/2`
   """
   def start_link(%Kazan.Request{} = request, opts) do
@@ -126,6 +130,7 @@ defmodule Kazan.Watcher do
     {rv, opts} = Keyword.pop(opts, :resource_version)
     {name, opts} = Keyword.pop(opts, :name, inspect(self()))
     {log_level, opts} = Keyword.pop(opts, :log, false)
+    {max_connect_retries, opts} = Keyword.pop(opts, :max_connect_retries, 0)
 
     rv =
       case rv do
@@ -148,19 +153,19 @@ defmodule Kazan.Watcher do
       "Watcher init: #{name} rv: #{rv} request: #{inspect(request)}"
     )
 
-    state =
-      %State{
-        request: request,
-        rv: rv,
-        send_to: send_to,
-        name: name,
-        client_opts: client_opts,
-        log_level: log_level
-      }
-      |> start_request()
+    state = %State{
+      request: request,
+      rv: rv,
+      send_to: send_to,
+      name: name,
+      client_opts: client_opts,
+      log_level: log_level,
+      max_connect_retries: max_connect_retries
+    }
 
     # Monitor send_to process so we can terminate when it goes down
     Process.monitor(send_to)
+    send(self(), :start_request)
     {:ok, state}
   end
 
@@ -168,6 +173,11 @@ defmodule Kazan.Watcher do
   def handle_call(:stop_watch, _from, %State{} = state) do
     log(state, "Stopping watch #{inspect(self())}")
     {:stop, :normal, :ok, state}
+  end
+
+  @impl GenServer
+  def handle_info(:start_request, state) do
+    {:noreply, start_request(state)}
   end
 
   @impl GenServer
@@ -242,8 +252,14 @@ defmodule Kazan.Watcher do
   # INTERNAL
 
   defp start_request(
-         %State{request: request, name: name, rv: rv, client_opts: client_opts} =
-           state
+         %State{
+           request: request,
+           name: name,
+           rv: rv,
+           max_connect_retries: max_retries,
+           client_opts: client_opts
+         } = state,
+         retries \\ 0
        ) do
     query_params =
       request.query_params
@@ -251,9 +267,36 @@ defmodule Kazan.Watcher do
       |> Map.put("resourceVersion", rv)
 
     request = %Kazan.Request{request | query_params: query_params}
-    {:ok, id} = Kazan.run(request, [{:stream_to, self()} | client_opts])
-    log(state, "Started request: #{name} rv: #{rv}")
-    %State{state | id: id, buffer: LineBuffer.new()}
+
+    case Kazan.run(request, [{:stream_to, self()} | client_opts]) do
+      {:ok, id} ->
+        log(state, "Started request: #{name} rv: #{rv}")
+        %State{state | id: id, buffer: LineBuffer.new()}
+
+      {:error, %HTTPoison.Error{reason: reason}} ->
+        if max_retries == :infinity or retries < max_retries do
+          # Exponential backoff starting 1 second, max of 2 minutes
+          delay_s =
+            :math.pow(2, retries)
+            |> round()
+            |> min(120)
+
+          log(
+            state,
+            "Cannot start request: #{name} rv: #{rv} retries: #{retries} reason: #{
+              reason
+            } sleeping #{delay_s}s before retrying"
+          )
+
+
+          :timer.sleep(delay_s * 1000)
+          start_request(state, retries + 1)
+        else
+          raise "Cannot start watch due to connection error #{name} rv: #{rv} retries: #{
+                  retries
+                } reason: #{inspect(reason)}"
+        end
+    end
   end
 
   defp process_lines(%State{name: name, rv: rv} = state, lines) do
