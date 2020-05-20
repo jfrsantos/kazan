@@ -356,10 +356,11 @@ defmodule Kazan.Watcher do
   defp extract_rv(%{
          "code" => 410,
          "kind" => "Status",
-         "reason" => "Gone",
+         "reason" => reason,
          "status" => "Failure",
          "message" => message
-       }),
+       })
+       when reason in ["Gone", "Expired"],
        do: {:gone, message}
 
   defp extract_rv(%{"metadata" => %{"resourceVersion" => rv}}), do: rv
