@@ -137,6 +137,7 @@ defmodule Kazan.Watcher do
   * `send_to` - A `pid` to which events are sent.  Defaults to `self()`.
   * `resource_version` - The version from which to start watching. Raises if set and `manage_gone?` is `true`.
   * `name` - An optional name for the watcher.  Displayed in logs.
+  * `registered_name` - An optional name (atom) or via tuple to register the process with.
   * `ref` - An optional ref that is sent in the events.  If you are watching multiple resources you can use
     this to identify from which watcher they are coming. Although the watcher pid is also sent in the event this
     can be more convenient. A typical use would be a cluster name in the case of having multiple K8S clusters. Can be any
@@ -149,8 +150,23 @@ defmodule Kazan.Watcher do
   * Other options are passed directly to `Kazan.Client.run/2`
   """
   def start_link(%Kazan.Request{} = request, opts) do
-    {send_to, opts} = Keyword.pop(opts, :send_to, self())
-    GenServer.start_link(__MODULE__, [request, send_to, opts])
+    {send_to, watcher_opts} = Keyword.pop(opts, :send_to, self())
+    # Registered name is the name or via tuple to register the watcher process
+    # We cannot use `name` as this is already used as the name of the watcher itself.
+    {registered_name, watcher_opts} =
+      Keyword.pop(watcher_opts, :registered_name)
+
+    genserver_opts =
+      case registered_name do
+        nil -> []
+        name -> [name: name]
+      end
+
+    GenServer.start_link(
+      __MODULE__,
+      [request, send_to, watcher_opts],
+      genserver_opts
+    )
   end
 
   @doc "Stops the watch and terminates the process"
