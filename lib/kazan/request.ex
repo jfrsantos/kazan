@@ -20,7 +20,7 @@ defmodule Kazan.Request do
   @type t :: %__MODULE__{
           method: String.t(),
           path: String.t(),
-          query_params: Map.t(),
+          query_params: map(),
           content_type: String.t(),
           body: String.t(),
           response_model: atom | nil,
@@ -42,7 +42,7 @@ defmodule Kazan.Request do
   - `operation` should be the nickname of an operation found in the swagger dict
   - `params` should be a Map of parameters to send in the request.
   """
-  @spec create(String.t(), Map.t()) :: {:ok, t()} | {:error, atom}
+  @spec create(String.t(), map()) :: {:ok, t()} | {:error, atom}
   def create(operation, params) do
     case validate_request(operation, params) do
       {:ok, op} ->
@@ -54,7 +54,7 @@ defmodule Kazan.Request do
   end
 
   # Checks that we have all the expected parameters for our request.
-  @spec validate_request(String.t(), Map.t()) :: {:ok, t} | {:error, term}
+  @spec validate_request(String.t(), map()) :: {:ok, t} | {:error, term}
   defp validate_request(operation, params) do
     operation = @op_map[operation]
 
@@ -73,7 +73,7 @@ defmodule Kazan.Request do
     end
   end
 
-  @spec build_request(Map.t(), Map.t()) :: __MODULE__.t()
+  @spec build_request(map(), map()) :: __MODULE__.t()
   defp build_request(operation, params) do
     param_groups =
       Enum.group_by(operation["parameters"], fn param -> param["in"] end)
@@ -92,7 +92,7 @@ defmodule Kazan.Request do
     }
   end
 
-  @spec build_path(String.t(), Map.t(), Map.t()) :: String.t()
+  @spec build_path(String.t(), map(), map()) :: String.t()
   defp build_path(path, param_groups, params) do
     path_params = Map.get(param_groups, "path", [])
 
@@ -102,7 +102,7 @@ defmodule Kazan.Request do
     end)
   end
 
-  @spec build_query_params(Map.t(), Map.t()) :: Map.t()
+  @spec build_query_params(map(), map()) :: map()
   defp build_query_params(param_groups, params) do
     param_groups
     |> Map.get("query", [])
@@ -111,7 +111,7 @@ defmodule Kazan.Request do
     |> Enum.into(%{})
   end
 
-  @spec build_body(Map.t(), Map.t()) :: String.t() | no_return
+  @spec build_body(map(), map()) :: String.t() | no_return
   defp build_body(param_groups, params) do
     case Map.get(param_groups, "body", []) do
       [body_param] ->
@@ -127,7 +127,7 @@ defmodule Kazan.Request do
     end
   end
 
-  @spec content_type(Map.t()) :: String.t() | no_return
+  @spec content_type(map()) :: String.t() | no_return
   defp content_type(operation) do
     cond do
       operation["method"] == "get" ->

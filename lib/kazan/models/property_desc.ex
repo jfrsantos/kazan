@@ -25,7 +25,7 @@ defmodule Kazan.Models.PropertyDesc do
   If this property has a $ref that is not present in `refs` then we assume that
   it is a reference to another model.
   """
-  @spec from_oai_desc(Map.t(), String.t(), Map.t()) :: t
+  @spec from_oai_desc(map(), String.t(), map()) :: t
   def from_oai_desc(map, field, refs) do
     ref = definition_ref_to_model_module(map["$ref"])
 

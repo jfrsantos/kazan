@@ -165,7 +165,7 @@ defmodule Kazan.Codegen.Models do
   )
 
   # Creates a property type doc string.
-  @spec property_type_doc(Property.t()) :: String.t() | nil
+  @spec property_type_doc(PropertyDesc.t()) :: String.t() | nil
   defp property_type_doc(property) do
     if property.ref do
       "`#{doc_ref(property.ref)}`"

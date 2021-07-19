@@ -29,7 +29,7 @@ defmodule Kazan.Server do
 
   @type t :: %{
           url: String.t(),
-          insecure_skip_tls_verify: Boolean.t(),
+          insecure_skip_tls_verify: boolean(),
           ca_cert: String.t() | nil,
           auth: auth_t,
           server_info: Kazan.Server.ServerInfo.t() | nil
@@ -101,7 +101,7 @@ defmodule Kazan.Server do
   # Server.from_map can be used to convert a map into a Server.t. Useful when
   # working with mix config, where the kazan structs are unavaliable.
   @doc false
-  @spec from_map(Server.t() | Map.t()) :: Server.t()
+  @spec from_map(Server.t() | map()) :: Server.t()
   def from_map(%Server{} = server), do: server
 
   def from_map(%{} = map) do
@@ -268,12 +268,12 @@ defmodule Kazan.Server do
     end
   end
 
-  @spec find_by_name([Map.t()], String.t()) :: Map.t()
+  @spec find_by_name([map()], String.t()) :: map()
   defp find_by_name(elems, name) do
     Enum.find(elems, fn elem -> elem["name"] == name end)
   end
 
-  @spec get_cert(Map.t(), String.t()) :: binary
+  @spec get_cert(map(), String.t()) :: binary
   defp get_cert(%{"insecure-skip-tls-verify" => true}, _) do
     nil
   end
@@ -286,7 +286,7 @@ defmodule Kazan.Server do
     cert_from_base64(certdata)
   end
 
-  @spec auth_from_user(Map.t(), String.t()) :: auth_t
+  @spec auth_from_user(map(), String.t()) :: auth_t
   defp auth_from_user(
          %{"client-certificate" => cert_file, "client-key" => key_file},
          basepath

@@ -26,7 +26,7 @@ defmodule Kazan.Codegen.Apis.Operation do
           path: String.t()
         }
 
-  @spec from_oai_desc(Map.t()) :: t
+  @spec from_oai_desc(map()) :: t
   @doc """
   Creates an Operation from it's open API description.
 

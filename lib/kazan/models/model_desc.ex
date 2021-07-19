@@ -36,7 +36,7 @@ defmodule Kazan.Models.ModelDesc do
   supplied data. It should only be called at build time as part of kazan
   codegen.
   """
-  @spec from_oai_desc({String.t(), Map.t()}, Map.t()) :: t
+  @spec from_oai_desc({String.t(), map()}, map()) :: t
   def from_oai_desc({name, map}, refs) do
     %__MODULE__{
       id: name,

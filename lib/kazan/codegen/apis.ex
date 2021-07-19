@@ -122,7 +122,7 @@ defmodule Kazan.Codegen.Apis do
   # but there could be more.  We handle that by duplicating on tags.
   # Once this function is finished, we will have a bunch of operations with a
   # single tag.
-  @spec duplicate_on_tags(Map.t()) :: [Map.t()]
+  @spec duplicate_on_tags(map()) :: [map()]
   defp duplicate_on_tags(operation) do
     for tag <- operation["tags"] do
       operation |> Map.put("tag", tag) |> Map.delete("tags")
@@ -255,7 +255,7 @@ defmodule Kazan.Codegen.Apis do
   end
 
   # List of argument forms to go in function argument lists.
-  @spec argument_forms([Map.t()], [Map.t()]) :: [term]
+  @spec argument_forms([map()], [map()]) :: [term]
   defp argument_forms(argument_params, []) do
     for param <- argument_params do
       Macro.var(param.var_name, __MODULE__)
@@ -268,7 +268,7 @@ defmodule Kazan.Codegen.Apis do
   end
 
   # List of argument specs to go in function spec.
-  @spec argument_spec_forms([Map.t()], [Map.t()]) :: [term]
+  @spec argument_spec_forms([map()], [map()]) :: [term]
   defp argument_spec_forms(argument_params, []) do
     for param <- argument_params do
       param_spec(param)
@@ -312,7 +312,7 @@ defmodule Kazan.Codegen.Apis do
   end
 
   # List of arugment forms to go in call to function from bang function.
-  @spec argument_call_forms([Map.t()], [Map.t()]) :: [term]
+  @spec argument_call_forms([map()], [map()]) :: [term]
   defp argument_call_forms(argument_params, []) do
     for param <- argument_params do
       Macro.var(param.var_name, __MODULE__)

@@ -22,7 +22,7 @@ defmodule Kazan.Codegen.Apis.Parameter do
           data_type: atom | nil
         }
 
-  @spec from_oai_desc(Map.t()) :: t
+  @spec from_oai_desc(map()) :: t
   def from_oai_desc(desc) do
     %__MODULE__{
       type: parse_type(desc["in"]),

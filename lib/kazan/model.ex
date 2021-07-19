@@ -49,9 +49,9 @@ defmodule Kazan.Model do
         end
       end
   """
-  @callback decode(map :: Map.t()) :: struct
-  @callback encode(model :: struct) :: Map.t()
-  @callback model_desc() :: Kazan.ModelDesc.t()
+  @callback decode(map :: map()) :: struct
+  @callback encode(model :: struct) :: map()
+  @callback model_desc() :: Kazan.Models.ModelDesc.t()
 
   defmacro __using__(_opts) do
     quote do

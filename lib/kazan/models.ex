@@ -17,7 +17,7 @@ defmodule Kazan.Models do
   @doc """
   Decodes data from a Map into a Model struct.
   """
-  @spec decode(Map.t(), atom | nil) :: {:ok, struct} | {:err, term}
+  @spec decode(map(), atom | nil) :: {:ok, struct} | {:err, term}
   def decode(data, model \\ nil) do
     with {:ok, model} <- guess_model(data, model),
          desc = %ModelDesc{} = model.model_desc(),
@@ -28,7 +28,7 @@ defmodule Kazan.Models do
   @doc """
   Encodes data from a Kazan model to plain Maps suitable for JSON encoding.
   """
-  @spec encode(struct) :: {:ok, Map.t()} | {:err, term}
+  @spec encode(struct) :: {:ok, map()} | {:err, term}
   def encode(model) do
     model.__struct__.model_desc()
     |> do_encode(model)
@@ -47,7 +47,7 @@ defmodule Kazan.Models do
     end
   end
 
-  @spec guess_model(Map.t(), atom | nil) :: {:ok, atom} | {:err, term}
+  @spec guess_model(map(), atom | nil) :: {:ok, atom} | {:err, term}
   defp guess_model(data, model) do
     cond do
       model ->
@@ -85,7 +85,7 @@ defmodule Kazan.Models do
     Map.get(resource_id_index(), resource_id)
   end
 
-  @spec do_decode(ModelDesc.t(), Map.t()) :: {:ok, struct} | {:err, term}
+  @spec do_decode(ModelDesc.t(), map()) :: {:ok, struct} | {:err, term}
   defp do_decode(model_desc, data) do
     result =
       model_desc.properties
@@ -142,7 +142,7 @@ defmodule Kazan.Models do
     {:err, {:unknown_property_type, type}}
   end
 
-  @spec do_encode(ModelDesc.t(), struct) :: {:ok, Map.t()} | {:err, term}
+  @spec do_encode(ModelDesc.t(), struct) :: {:ok, map()} | {:err, term}
   defp do_encode(model_desc, model) do
     result =
       model_desc.properties
