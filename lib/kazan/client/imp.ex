@@ -165,7 +165,8 @@ defmodule Kazan.Client.Imp do
     verify_options =
       case server.insecure_skip_tls_verify do
         true -> [verify: :verify_none]
-        _ -> []
+        # Needed on OTP 24 to prevent warnings
+        _ -> [verify: :verify_peer]
       end
 
     ca_options =
