@@ -244,7 +244,7 @@ defmodule Kazan.Server do
   # Fetches authorization from the configured auth provider.
   defp fetch_auth_from_provider(%ProviderAuth{} = auth) do
     with {cmd_response, 0} <-
-           System.cmd(auth.config.cmd_path, auth.config.cmd_args),
+           System.cmd(auth.config.cmd_path, auth.config.cmd_args, env: Map.get(auth.config, :env, [])),
          {:ok, data} <- Poison.decode(cmd_response),
          token when not is_nil(token) <-
            get_in(data, auth.config.token_key_path),

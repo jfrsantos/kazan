@@ -13,7 +13,8 @@ defmodule Kazan.Server.ProviderAuth do
            cmd_path: String.t(),
            cmd_args: [String.t()],
            token_key_path: [String.t()],
-           expiry_key_path: [String.t()]
+           expiry_key_path: [String.t()],
+           env: [{String.t(), String.t()}] | nil
          }
 
   @type t :: %__MODULE__{
