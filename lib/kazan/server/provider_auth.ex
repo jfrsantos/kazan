@@ -26,8 +26,7 @@ defmodule Kazan.Server.ProviderAuth do
   defimpl Inspect do
     def inspect(auth, opts) do
       output =
-        "~w(config: #{inspect_config(auth.config)}, token: ******, expiry: #{DateTime.to_string(auth.expiry)})" <>
-          " |> #{__MODULE__}.to_string()"
+        "~w(config: #{inspect_config(auth.config)}, token: ******, expiry: #{DateTime.to_string(auth.expiry)})"
 
       Inspect.Map.inspect(output, opts)
     end
