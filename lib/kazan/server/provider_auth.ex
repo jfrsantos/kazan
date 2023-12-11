@@ -24,36 +24,20 @@ defmodule Kazan.Server.ProviderAuth do
         }
 
   defimpl Inspect do
+    import Inspect.Algebra
+
     def inspect(auth, opts) do
-      output =
-        "~w(config: #{inspect_config(auth.config)}, token: ******, expiry: #{DateTime.to_string(auth.expiry)})"
-
-      Inspect.Map.inspect(output, opts)
+      concat([
+        "#ProviderAuth<config: ",
+        inspect_config(auth.config, opts),
+        ", expiry: #{DateTime.to_string(auth.expiry)})>"
+      ])
     end
 
-    defp inspect_config(config) do
-      env = replace_env_value(config.env)
-
-      Map.put_new(config, :env, env)
-      |> Map.from_struct()
-      |> Map.replace(:env, inspect(env))
-    end
-
-    defp replace_env_value(env) do
-      sensitive_env_vars = [
-        "AWS_ACCESS_KEY_ID",
-        "AWS_SECRET_ACCESS_KEY",
-        "AWS_SESSION_TOKEN"
-      ]
-
-      Enum.map(env, fn {key, value} ->
-        if Enum.member?(sensitive_env_vars, key) do
-          {key, "******"}
-        else
-          {key, value}
-        end
-      end)
-      |> Map.new()
+    defp inspect_config(config, opts) do
+      config
+      |> Map.drop([:env])
+      |> to_doc(opts)
     end
   end
 end
