@@ -22,4 +22,22 @@ defmodule Kazan.Server.ProviderAuth do
           token: TokenAuth.t() | nil,
           expiry: DateTime.t() | nil
         }
+
+  defimpl Inspect do
+    import Inspect.Algebra
+
+    def inspect(auth, opts) do
+      concat([
+        "#ProviderAuth<config: ",
+        inspect_config(auth.config, opts),
+        ", expiry: #{DateTime.to_string(auth.expiry)})>"
+      ])
+    end
+
+    defp inspect_config(config, opts) do
+      config
+      |> Map.drop([:env])
+      |> to_doc(opts)
+    end
+  end
 end
